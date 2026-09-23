@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { KeybindingsManager, matchesKey, setKeybindings, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
+import {
+  KeybindingsManager,
+  matchesKey,
+  setKeybindings,
+  TUI_KEYBINDINGS,
+  TuiAltScreen,
+} from "@earendil-works/pi-tui";
 import extension from "../extensions/index.ts";
 
-function createEditor(mode = "fullscreen") {
+function createEditor(mode = "fullscreen", tuiOverride) {
   let onSessionStart;
   extension({
     on(event, handler) {
@@ -17,7 +23,7 @@ function createEditor(mode = "fullscreen") {
     ui: { setEditorComponent: (factory) => { createComponent = factory; } },
   });
 
-  const tui = { mode, terminal: { rows: 24 }, requestRender() {} };
+  const tui = tuiOverride ?? { mode, terminal: { rows: 24 }, requestRender() {}, setFocus() {} };
   const theme = { borderColor: (value) => value, selectList: {} };
   const keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
   setKeybindings(keybindings);
@@ -37,18 +43,84 @@ test("fullscreen drag selects prompt text that Backspace removes", () => {
   editor.setText("abcdef");
   editor.render(20);
 
-  assert.deepEqual(editor.handleMouse(mouse("press", 1, 1)), {
-    handled: true, capture: true, focus: true,
-  });
-  assert.deepEqual(editor.handleMouse(mouse("drag", 4, 1)), { handled: true });
-  assert.match(editor.render(20)[1], /\x1b\[7mbcd\x1b\[0m/);
-  assert.deepEqual(editor.handleMouse(mouse("release", 4, 1)), {
-    handled: true, focus: true,
-  });
+  assert.equal(editor.handleMouse(mouse("press", 1, 1)), undefined);
+  assert.equal(editor.handleMouse(mouse("drag", 4, 1)), undefined);
+  assert.equal(editor.handleMouse(mouse("release", 4, 1)), undefined);
 
   editor.handleInput("\x7f");
-  assert.equal(editor.getText(), "aef");
+  assert.equal(editor.getText(), "af");
   assert.deepEqual(editor.getCursor(), { line: 0, col: 1 });
+});
+
+test("fullscreen mouse selection copies through Pi and remains deletable", async () => {
+  let input;
+  let copied;
+  const terminal = {
+    columns: 20,
+    rows: 24,
+    kittyProtocolActive: false,
+    start(onInput) { input = onInput; },
+    stop() {},
+    write() {},
+    moveBy() {},
+    hideCursor() {},
+    showCursor() {},
+    clearLine() {},
+    clearFromCursor() {},
+    clearScreen() {},
+    setTitle() {},
+    setProgress() {},
+  };
+  const tui = new TuiAltScreen(terminal, false, undefined, {
+    copySelection: async (text) => { copied = text; return true; },
+  });
+  const { editor } = createEditor("fullscreen", tui);
+  editor.setText("abcdef");
+  tui.setLayoutRoot(editor);
+  tui.start();
+  tui.renderNow();
+
+  try {
+    input("\x1b[<0;2;2M");
+    assert.equal(tui.getFocusedComponent(), editor);
+    input("\x1b[<32;5;2M");
+    input("\x1b[<0;5;2m");
+    await Promise.resolve();
+
+    assert.equal(copied, "bcde");
+    assert.equal(tui.hasActiveSelection(), true);
+    editor.handleInput("\x7f");
+    assert.equal(editor.getText(), "af");
+    assert.equal(tui.hasActiveSelection(), false);
+  } finally {
+    tui.stop();
+  }
+});
+
+test("reverse fullscreen drag also includes both endpoint characters", () => {
+  const { editor } = createEditor();
+  editor.setText("abcdef");
+  editor.render(20);
+
+  editor.handleMouse(mouse("press", 4, 1));
+  editor.handleMouse(mouse("drag", 1, 1));
+  editor.handleMouse(mouse("release", 1, 1));
+  editor.handleInput("\x7f");
+
+  assert.equal(editor.getText(), "af");
+});
+
+test("mouse selection extends through a complete emoji grapheme", () => {
+  const { editor } = createEditor();
+  editor.setText("a🙂b");
+  editor.render(20);
+
+  editor.handleMouse(mouse("press", 1, 1));
+  editor.handleMouse(mouse("drag", 3, 1));
+  editor.handleMouse(mouse("release", 3, 1));
+  editor.handleInput("\x7f");
+
+  assert.equal(editor.getText(), "a");
 });
 
 test("deleting text preserves an unselected large paste", () => {

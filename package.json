@@ -2,6 +2,10 @@
   "name": "pi-editor-selection",
   "version": "0.1.0",
   "description": "Keyboard and fullscreen mouse selection for the Pi prompt editor",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Gybra/pi-editor-selection.git"
+  },
   "type": "module",
   "license": "MIT",
   "engines": { "node": ">=22.19.0" },

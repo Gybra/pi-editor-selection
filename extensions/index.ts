@@ -33,6 +33,12 @@ const LEFT = "\x1b[D";
 const RIGHT = "\x1b[C";
 const UP = "\x1b[A";
 const DOWN = "\x1b[B";
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+function nextGraphemeOffset(text: string, offset: number): number {
+  const grapheme = graphemeSegmenter.segment(text.slice(offset))[Symbol.iterator]().next().value?.segment;
+  return grapheme && grapheme !== "\n" ? offset + grapheme.length : offset;
+}
 
 class SelectionEditor extends CustomEditor {
   private readonly editorKeybindings: KeybindingsManager;
@@ -95,6 +101,11 @@ class SelectionEditor extends CustomEditor {
       const pasteCounter = pasteState.pasteCounter;
       this.selection = undefined;
       this.setText(result.text);
+      // ponytail: Pi exposes no public way to clear fullscreen selection; remove this when it does.
+      if (this.tui.mode === "fullscreen") {
+        (this.tui as unknown as { clearTextSelection?: () => void }).clearTextSelection?.();
+        this.tui.requestRender();
+      }
       // ponytail: Pi's setText clears its private paste registry; preserve surviving IDs until Pi adds range edits.
       const remainingPasteIds = new Set(
         [...result.text.matchAll(/\[paste #(\d+)(?: \+\d+ lines| \d+ chars)?\]/g)].map(([, id]) => Number(id)),
@@ -128,7 +139,7 @@ class SelectionEditor extends CustomEditor {
       if (!this.mouseDragged) this.selection = undefined;
       this.mouseAnchor = undefined;
       this.mouseDragged = false;
-      return { handled: true, focus: true };
+      return undefined;
     }
 
     if (event.button !== "left" || event.y <= 0 || event.y > this.renderedTextRows) {
@@ -140,16 +151,24 @@ class SelectionEditor extends CustomEditor {
       this.mouseDragged = false;
       super.handleMouse({ ...event, type: "click" });
       this.mouseAnchor = cursorToOffset(this.getText(), this.getCursor());
-      return { handled: true, capture: true, focus: true };
+      this.tui.setFocus(this);
+      return undefined;
     }
 
     if (event.type === "drag" && this.mouseAnchor !== undefined) {
       super.handleMouse({ ...event, type: "click" });
-      const focus = cursorToOffset(this.getText(), this.getCursor());
-      this.selection = extendSelection(this.selection, this.mouseAnchor, focus);
+      const text = this.getText();
+      const focus = cursorToOffset(text, this.getCursor());
       this.mouseDragged = focus !== this.mouseAnchor;
-      this.tui.requestRender();
-      return { handled: true };
+      if (this.mouseDragged) {
+        const end = nextGraphemeOffset(text, Math.max(this.mouseAnchor, focus));
+        this.selection = focus > this.mouseAnchor
+          ? { anchor: this.mouseAnchor, focus: end }
+          : { anchor: end, focus };
+      } else {
+        this.selection = undefined;
+      }
+      return undefined;
     }
 
     return super.handleMouse(event);
