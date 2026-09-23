@@ -1,0 +1,16 @@
+{
+  "name": "pi-editor-selection",
+  "version": "0.1.0",
+  "description": "Keyboard and fullscreen mouse selection for the Pi prompt editor",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22.19.0" },
+  "keywords": ["pi-package", "pi", "terminal", "editor", "selection"],
+  "files": ["extensions", "src/selection.js", "README.md", "LICENSE"],
+  "scripts": { "test": "node --test" },
+  "pi": { "extensions": ["./extensions/index.ts"] },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}
