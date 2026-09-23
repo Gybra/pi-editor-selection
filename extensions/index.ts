@@ -6,6 +6,7 @@ import {
   visibleWidth,
   type EditorTheme,
   type TUI,
+  type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
 // ponytail: wordWrapLine is an internal Pi API; use a public layout helper if Pi adds one.
 import { wordWrapLine } from "@earendil-works/pi-tui/dist/components/editor.js";
@@ -37,8 +38,9 @@ class SelectionEditor extends CustomEditor {
   private readonly editorKeybindings: KeybindingsManager;
   private selection?: Selection;
   private renderedTextRows = 0;
-  private renderedPaddingX = 0;
   private renderedSegments: VisualSegment[] = [];
+  private mouseAnchor?: number;
+  private mouseDragged = false;
 
   constructor(tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) {
     super(tui, theme, keybindings);
@@ -101,6 +103,46 @@ class SelectionEditor extends CustomEditor {
     super.handleInput(data);
   }
 
+  handleMouse(event: TuiMouseEvent) {
+    if (this.tui.mode !== "fullscreen") return super.handleMouse(event);
+    if (this.isShowingAutocomplete()) {
+      this.selection = undefined;
+      this.mouseAnchor = undefined;
+      this.mouseDragged = false;
+      return super.handleMouse(event);
+    }
+
+    if (event.type === "release" && this.mouseAnchor !== undefined) {
+      if (!this.mouseDragged) this.selection = undefined;
+      this.mouseAnchor = undefined;
+      this.mouseDragged = false;
+      return { handled: true, focus: true };
+    }
+
+    if (event.button !== "left" || event.y <= 0 || event.y > this.renderedTextRows) {
+      return super.handleMouse(event);
+    }
+
+    if (event.type === "press") {
+      this.selection = undefined;
+      this.mouseDragged = false;
+      super.handleMouse({ ...event, type: "click" });
+      this.mouseAnchor = cursorToOffset(this.getText(), this.getCursor());
+      return { handled: true, capture: true, focus: true };
+    }
+
+    if (event.type === "drag" && this.mouseAnchor !== undefined) {
+      super.handleMouse({ ...event, type: "click" });
+      const focus = cursorToOffset(this.getText(), this.getCursor());
+      this.selection = extendSelection(this.selection, this.mouseAnchor, focus);
+      this.mouseDragged = focus !== this.mouseAnchor;
+      this.tui.requestRender();
+      return { handled: true };
+    }
+
+    return super.handleMouse(event);
+  }
+
   render(width: number): string[] {
     const rendered = super.render(width);
     if (this.isShowingAutocomplete()) {
@@ -151,7 +193,6 @@ class SelectionEditor extends CustomEditor {
     const viewportStart =
       cursorSegment >= 0 && renderedCursorRow >= 0 ? cursorSegment - renderedCursorRow : 0;
     this.renderedTextRows = Math.max(0, rendered.length - 2);
-    this.renderedPaddingX = paddingX;
     this.renderedSegments = segments.slice(
       Math.max(0, viewportStart),
       Math.max(0, viewportStart) + this.renderedTextRows,
