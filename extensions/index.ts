@@ -87,8 +87,20 @@ class SelectionEditor extends CustomEditor {
         this.editorKeybindings.matches(data, "tui.editor.deleteCharForward"))
     ) {
       const result = removeRange(this.getText(), range.start, range.end);
+      const pasteState = this as unknown as {
+        pastes: Map<number, string>;
+        pasteCounter: number;
+      };
+      const pastes = new Map(pasteState.pastes);
+      const pasteCounter = pasteState.pasteCounter;
       this.selection = undefined;
       this.setText(result.text);
+      // ponytail: Pi's setText clears its private paste registry; preserve surviving IDs until Pi adds range edits.
+      const remainingPasteIds = new Set(
+        [...result.text.matchAll(/\[paste #(\d+)(?: \+\d+ lines| \d+ chars)?\]/g)].map(([, id]) => Number(id)),
+      );
+      pasteState.pastes = new Map([...pastes].filter(([id]) => remainingPasteIds.has(id)));
+      pasteState.pasteCounter = pasteCounter;
       let offset = cursorToOffset(this.getText(), this.getCursor());
       while (offset > result.cursor) {
         super.handleInput(LEFT);

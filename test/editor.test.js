@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { matchesKey } from "@earendil-works/pi-tui";
+import { KeybindingsManager, matchesKey, setKeybindings, TUI_KEYBINDINGS } from "@earendil-works/pi-tui";
 import extension from "../extensions/index.ts";
 
 function createEditor(mode = "fullscreen") {
@@ -19,13 +19,8 @@ function createEditor(mode = "fullscreen") {
 
   const tui = { mode, terminal: { rows: 24 }, requestRender() {} };
   const theme = { borderColor: (value) => value, selectList: {} };
-  const keybindings = {
-    matches(data, action) {
-      if (action === "tui.editor.deleteCharBackward") return matchesKey(data, "backspace");
-      if (action === "tui.editor.deleteCharForward") return matchesKey(data, "delete");
-      return false;
-    },
-  };
+  const keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
+  setKeybindings(keybindings);
 
   return { editor: createComponent(tui, theme, keybindings), tui };
 }
@@ -54,6 +49,36 @@ test("fullscreen drag selects prompt text that Backspace removes", () => {
   editor.handleInput("\x7f");
   assert.equal(editor.getText(), "aef");
   assert.deepEqual(editor.getCursor(), { line: 0, col: 1 });
+});
+
+test("deleting text preserves an unselected large paste", () => {
+  const { editor } = createEditor();
+  const pasted = "x".repeat(1100);
+  editor.handleInput(`\x1b[200~${pasted}\x1b[201~`);
+  editor.handleInput(" tail");
+  for (let i = 0; i < 5; i++) editor.handleInput("\x1b[1;2D");
+  editor.handleInput("\x7f");
+
+  assert.equal(editor.getText(), "[paste #1 1100 chars]");
+  assert.equal(editor.getExpandedText(), pasted);
+
+  editor.handleInput("\x1f");
+  assert.equal(editor.getText(), "[paste #1 1100 chars] tail");
+  assert.equal(editor.getExpandedText(), `${pasted} tail`);
+});
+
+test("deleting one large paste preserves another paste payload", () => {
+  const { editor } = createEditor();
+  const first = "a".repeat(1100);
+  const second = "b".repeat(1100);
+  editor.handleInput(`\x1b[200~${first}\x1b[201~`);
+  editor.handleInput(" ");
+  editor.handleInput(`\x1b[200~${second}\x1b[201~`);
+  editor.handleInput("\x1b[1;2D");
+  editor.handleInput("\x7f");
+
+  assert.equal(editor.getText(), "[paste #1 1100 chars] ");
+  assert.equal(editor.getExpandedText(), `${first} `);
 });
 
 test("fullscreen click moves the cursor without retaining a selection", () => {
