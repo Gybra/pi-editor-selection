@@ -1,11 +1,30 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import * as selection from "../src/selection.js";
 import {
   cursorToOffset,
   offsetToCursor,
   removeRange,
   selectionRange,
 } from "../src/selection.js";
+
+test("extension retains its anchor as the focus moves in either direction", () => {
+  assert.equal(typeof selection.extendSelection, "function");
+  const first = selection.extendSelection(undefined, 2, 5);
+  assert.deepEqual(first, { anchor: 2, focus: 5 });
+  assert.deepEqual(selection.extendSelection(first, 5, 3), {
+    anchor: 2, focus: 3,
+  });
+});
+
+test("clips a selection to the visible portion of a wrapped segment", () => {
+  assert.equal(typeof selection.selectionOnSegment, "function");
+  const range = selection.selectionRange(9, 4);
+  assert.deepEqual(selection.selectionOnSegment(range, 6, 10), {
+    start: 0, end: 3,
+  });
+  assert.equal(selection.selectionOnSegment(range, 10, 14), undefined);
+});
 
 test("converts cursor positions across lines to text offsets", () => {
   assert.equal(cursorToOffset("one\ntwo", { line: 1, col: 2 }), 6);

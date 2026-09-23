@@ -19,3 +19,13 @@ export function removeRange(text, anchor, focus) {
   const { start, end } = selectionRange(anchor, focus);
   return { text: text.slice(0, start) + text.slice(end), cursor: start };
 }
+
+export function extendSelection(selection, previousOffset, nextOffset) {
+  return { anchor: selection?.anchor ?? previousOffset, focus: nextOffset };
+}
+
+export function selectionOnSegment(range, segmentStart, segmentEnd) {
+  const start = Math.max(range.start, segmentStart);
+  const end = Math.min(range.end, segmentEnd);
+  return start < end ? { start: start - segmentStart, end: end - segmentStart } : undefined;
+}
