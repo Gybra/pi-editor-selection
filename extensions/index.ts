@@ -8,8 +8,6 @@ import {
   type TUI,
   type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
-// ponytail: wordWrapLine is an internal Pi API; use a public layout helper if Pi adds one.
-import { wordWrapLine } from "@earendil-works/pi-tui/dist/components/editor.js";
 import {
   cursorToOffset,
   extendSelection,
@@ -189,24 +187,32 @@ class SelectionEditor extends CustomEditor {
     const layoutWidth = Math.max(1, contentWidth - (paddingX ? 0 : 1));
     const segments: VisualSegment[] = [];
     const lines = this.getLines();
+    const lineOffsets: number[] = [];
     let textOffset = 0;
 
     for (let line = 0; line < lines.length; line++) {
-      const value = lines[line] ?? "";
-      const chunks = wordWrapLine(value, layoutWidth);
-      for (let chunkIndex = 0; chunkIndex < chunks.length; chunkIndex++) {
-        const chunk = chunks[chunkIndex]!;
-        segments.push({
-          text: chunk.text,
-          start: textOffset + chunk.startIndex,
-          end: textOffset + chunk.endIndex,
-          line,
-          lineStart: chunk.startIndex,
-          lineEnd: chunk.endIndex,
-          last: chunkIndex === chunks.length - 1,
-        });
-      }
-      textOffset += value.length + (line < lines.length - 1 ? 1 : 0);
+      lineOffsets[line] = textOffset;
+      textOffset += (lines[line] ?? "").length + (line < lines.length - 1 ? 1 : 0);
+    }
+
+    // ponytail: use Pi's private visual map until it exposes a public wrapped-line API.
+    const visualLines = (this as unknown as {
+      buildVisualLineMap(width: number): { logicalLine: number; startCol: number; length: number }[];
+    }).buildVisualLineMap(layoutWidth);
+    for (let index = 0; index < visualLines.length; index++) {
+      const visualLine = visualLines[index]!;
+      const start = lineOffsets[visualLine.logicalLine] ?? 0;
+      const line = lines[visualLine.logicalLine] ?? "";
+      const endCol = visualLine.startCol + visualLine.length;
+      segments.push({
+        text: line.slice(visualLine.startCol, endCol),
+        start: start + visualLine.startCol,
+        end: start + endCol,
+        line: visualLine.logicalLine,
+        lineStart: visualLine.startCol,
+        lineEnd: endCol,
+        last: visualLines[index + 1]?.logicalLine !== visualLine.logicalLine,
+      });
     }
 
     const cursor = this.getCursor();
