@@ -89,9 +89,49 @@ test("fullscreen mouse selection copies through Pi and remains deletable", async
 
     assert.equal(copied, "bcde");
     assert.equal(tui.hasActiveSelection(), true);
+    tui.renderNow();
+    assert.doesNotMatch(tui.previousScreen[1], /\x1b\[7mf\s+\x1b\[0m/);
     editor.handleInput("\x7f");
     assert.equal(editor.getText(), "af");
     assert.equal(tui.hasActiveSelection(), false);
+  } finally {
+    tui.stop();
+  }
+});
+
+test("typing replaces a keyboard selection but navigation does not", () => {
+  const { editor } = createEditor();
+  editor.setText("hello");
+  editor.handleInput("\x1b[1;2D");
+  editor.handleInput("Z");
+  assert.equal(editor.getText(), "hellZ");
+});
+
+test("real fullscreen double click replaces word on typing", () => {
+  let input;
+  const terminal = {
+    columns: 20, rows: 24, kittyProtocolActive: false,
+    start(onInput) { input = onInput; }, stop() {}, write() {}, moveBy() {},
+    hideCursor() {}, showCursor() {}, clearLine() {}, clearFromCursor() {},
+    clearScreen() {}, setTitle() {}, setProgress() {},
+  };
+  const tui = new TuiAltScreen(terminal);
+  const { editor } = createEditor("fullscreen", tui);
+  editor.setText("hello world!");
+  tui.setLayoutRoot(editor);
+  tui.start();
+  tui.renderNow();
+  try {
+    for (let i = 0; i < 2; i++) {
+      input("\x1b[<0;8;2M");
+      input("\x1b[<0;8;2m");
+    }
+    tui.renderNow();
+    assert.doesNotMatch(tui.previousScreen[1], /\x1b\[7m!\s+\x1b\[0m/);
+    input("X");
+    assert.equal(editor.getText(), "hello X!");
+    input("\x1f");
+    assert.equal(editor.getText(), "hello world!");
   } finally {
     tui.stop();
   }

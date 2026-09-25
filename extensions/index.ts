@@ -1,6 +1,7 @@
 import { CustomEditor, type ExtensionAPI, type KeybindingsManager } from "@earendil-works/pi-coding-agent";
 import {
   CURSOR_MARKER,
+  decodeKittyPrintable,
   matchesKey,
   sliceByColumn,
   visibleWidth,
@@ -32,6 +33,7 @@ const RIGHT = "\x1b[C";
 const UP = "\x1b[A";
 const DOWN = "\x1b[B";
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+const wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
 
 function nextGraphemeOffset(text: string, offset: number): number {
   const grapheme = graphemeSegmenter.segment(text.slice(offset))[Symbol.iterator]().next().value?.segment;
@@ -45,6 +47,8 @@ class SelectionEditor extends CustomEditor {
   private renderedSegments: VisualSegment[] = [];
   private mouseAnchor?: number;
   private mouseDragged = false;
+  private lastPress?: { x: number; y: number; time: number };
+  private mouseWordSelected = false;
 
   constructor(tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) {
     super(tui, theme, keybindings);
@@ -88,9 +92,18 @@ class SelectionEditor extends CustomEditor {
       range &&
       range.start < range.end &&
       (this.editorKeybindings.matches(data, "tui.editor.deleteCharBackward") ||
-        this.editorKeybindings.matches(data, "tui.editor.deleteCharForward"))
+        this.editorKeybindings.matches(data, "tui.editor.deleteCharForward") ||
+        matchesKey(data, "shift+space") ||
+        decodeKittyPrintable(data) !== undefined ||
+        (data.length > 0 && !/[\x00-\x1f\x7f-\x9f]/.test(data)))
     ) {
+      const replacement = this.editorKeybindings.matches(data, "tui.editor.deleteCharBackward") ||
+        this.editorKeybindings.matches(data, "tui.editor.deleteCharForward")
+        ? ""
+        : matchesKey(data, "shift+space") ? " " : decodeKittyPrintable(data) ?? data;
       const result = removeRange(this.getText(), range.start, range.end);
+      result.text = result.text.slice(0, result.cursor) + replacement + result.text.slice(result.cursor);
+      result.cursor += replacement.length;
       const pasteState = this as unknown as {
         pastes: Map<number, string>;
         pasteCounter: number;
@@ -134,7 +147,8 @@ class SelectionEditor extends CustomEditor {
     }
 
     if (event.type === "release" && this.mouseAnchor !== undefined) {
-      if (!this.mouseDragged) this.selection = undefined;
+      if (!this.mouseDragged && !this.mouseWordSelected) this.selection = undefined;
+      this.mouseWordSelected = false;
       this.mouseAnchor = undefined;
       this.mouseDragged = false;
       return undefined;
@@ -148,12 +162,27 @@ class SelectionEditor extends CustomEditor {
       this.selection = undefined;
       this.mouseDragged = false;
       super.handleMouse({ ...event, type: "click" });
+      const now = Date.now();
+      this.mouseWordSelected = this.lastPress !== undefined &&
+        now - this.lastPress.time < 500 && this.lastPress.x === event.x && this.lastPress.y === event.y;
+      this.lastPress = this.mouseWordSelected ? undefined : { x: event.x, y: event.y, time: now };
+      if (this.mouseWordSelected) {
+        const { line, col } = this.getCursor();
+        const word = [...wordSegmenter.segment(this.getLines()[line] ?? "")]
+          .find((part) => part.index <= col && col < part.index + part.segment.length);
+        if (word?.isWordLike) {
+          const start = cursorToOffset(this.getText(), { line, col: word.index });
+          this.selection = { anchor: start, focus: start + word.segment.length };
+        }
+      }
       this.mouseAnchor = cursorToOffset(this.getText(), this.getCursor());
       this.tui.setFocus(this);
       return undefined;
     }
 
     if (event.type === "drag" && this.mouseAnchor !== undefined) {
+      this.lastPress = undefined;
+      this.mouseWordSelected = false;
       super.handleMouse({ ...event, type: "click" });
       const text = this.getText();
       const focus = cursorToOffset(text, this.getCursor());
@@ -235,6 +264,13 @@ class SelectionEditor extends CustomEditor {
       Math.max(0, viewportStart) + this.renderedTextRows,
     );
 
+    // Pi paints fullscreen mouse selections itself. Its selection slicer can carry the
+    // editor's inverse-video cursor into the padding, so hide that cursor while selecting.
+    if ((this.tui as TUI & { hasActiveSelection?: () => boolean }).hasActiveSelection?.()) {
+      return rendered.map((line) => line.replace(
+        `${CURSOR_MARKER}\x1b[7m`, CURSOR_MARKER,
+      ));
+    }
     if (!this.selection) return rendered;
     const range = selectionRange(this.selection.anchor, this.selection.focus);
     if (range.start === range.end) return rendered;
