@@ -1,13 +1,13 @@
 # pi-editor-selection
 
-Add visible text selection to Pi's prompt editor and delete the selected text with Backspace or Delete.
+Add visible text selection to Pi's prompt editor. Delete it with Backspace or Delete, or replace it by typing.
 
 ## Features
 
 - Select text with **Shift+Left/Right/Up/Down** in both regular and fullscreen TUI modes.
 - Extend or shrink a selection in either direction; it stays active until another editor action changes or clears it.
 - Delete the selected range with the configured Backspace or Delete keybinding. Pi's undo behavior is preserved.
-- In fullscreen mode, select prompt text by dragging with the left mouse button. Pi copies the native screen selection on release when **Fullscreen copy on select** is enabled.
+- In fullscreen mode, select prompt text by dragging or double-clicking a word with the left mouse button. Pi copies the native screen selection on release when **Fullscreen copy on select** is enabled.
 - No Ctrl/Cmd+A, Ctrl/Cmd+C, or Ctrl/Cmd+X selection bindings are added.
 
 The extension does not change Pi's TUI mode. Keyboard selection works in either mode; mouse selection is available only in fullscreen mode. Switch modes in Pi's settings, or start Pi with `--tui-mode fullscreen`.
