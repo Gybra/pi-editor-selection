@@ -6,32 +6,40 @@ import {
   setKeybindings,
   TUI_KEYBINDINGS,
   TuiAltScreen,
+  type EditorTheme,
+  type Terminal,
+  type TUI,
+  type TuiMouseEvent,
 } from "@earendil-works/pi-tui";
-import extension from "../extensions/index.ts";
+import { CustomEditor, type ExtensionAPI, type ExtensionUIContext, type KeybindingsManager as PiKeybindingsManager } from "@earendil-works/pi-coding-agent";
+import extension from "#extension";
 
-function createEditor(mode = "fullscreen", tuiOverride) {
-  let onSessionStart;
+function createEditor(mode: "fullscreen" | "regular" = "fullscreen", tuiOverride?: TUI) {
+  let onSessionStart: ((event: unknown, ctx: unknown) => void) | undefined;
   extension({
-    on(event, handler) {
+    on(event: string, handler: (event: unknown, ctx: unknown) => void) {
       if (event === "session_start") onSessionStart = handler;
+      return () => {};
     },
-  });
+  } as unknown as ExtensionAPI);
 
-  let createComponent;
+  let createComponent: Parameters<ExtensionUIContext["setEditorComponent"]>[0];
+  assert.ok(onSessionStart);
   onSessionStart({}, {
     mode: "tui",
-    ui: { setEditorComponent: (factory) => { createComponent = factory; } },
+    ui: { setEditorComponent: (factory: typeof createComponent) => { createComponent = factory; } },
   });
 
-  const tui = tuiOverride ?? { mode, terminal: { rows: 24 }, requestRender() {}, setFocus() {} };
-  const theme = { borderColor: (value) => value, selectList: {} };
+  const tui = tuiOverride ?? ({ mode, terminal: { rows: 24 }, requestRender() {}, setFocus() {} } as unknown as TUI);
+  const theme = { borderColor: (value: string) => value, selectList: {} } as EditorTheme;
   const keybindings = new KeybindingsManager(TUI_KEYBINDINGS);
   setKeybindings(keybindings);
 
-  return { editor: createComponent(tui, theme, keybindings), tui };
+  assert.ok(createComponent);
+  return { editor: createComponent(tui, theme, keybindings as unknown as PiKeybindingsManager) as CustomEditor, tui };
 }
 
-function mouse(type, x, y, button = "left") {
+function mouse(type: TuiMouseEvent["type"], x: number, y: number, button: TuiMouseEvent["button"] = "left"): TuiMouseEvent {
   return {
     type, button, x, y, screenX: x, screenY: y,
     width: 20, height: 24, shift: false, alt: false, ctrl: false,
@@ -53,14 +61,15 @@ test("fullscreen drag selects prompt text that Backspace removes", () => {
 });
 
 test("fullscreen mouse selection copies through Pi and remains deletable", async () => {
-  let input;
-  let copied;
-  const terminal = {
+  let input!: (data: string) => void;
+  let copied: string | undefined;
+  const terminal: Terminal = {
     columns: 20,
     rows: 24,
     kittyProtocolActive: false,
     start(onInput) { input = onInput; },
     stop() {},
+    async drainInput() {},
     write() {},
     moveBy() {},
     hideCursor() {},
@@ -90,7 +99,7 @@ test("fullscreen mouse selection copies through Pi and remains deletable", async
     assert.equal(copied, "bcde");
     assert.equal(tui.hasActiveSelection(), true);
     tui.renderNow();
-    assert.doesNotMatch(tui.previousScreen[1], /\x1b\[7mf\s+\x1b\[0m/);
+    assert.doesNotMatch((tui as unknown as { previousScreen: string[] }).previousScreen[1], /\x1b\[7mf\s+\x1b\[0m/);
     editor.handleInput("\x7f");
     assert.equal(editor.getText(), "af");
     assert.equal(tui.hasActiveSelection(), false);
@@ -108,10 +117,10 @@ test("typing replaces a keyboard selection but navigation does not", () => {
 });
 
 test("real fullscreen double click replaces word on typing", () => {
-  let input;
-  const terminal = {
+  let input!: (data: string) => void;
+  const terminal: Terminal = {
     columns: 20, rows: 24, kittyProtocolActive: false,
-    start(onInput) { input = onInput; }, stop() {}, write() {}, moveBy() {},
+    start(onInput) { input = onInput; }, stop() {}, async drainInput() {}, write() {}, moveBy() {},
     hideCursor() {}, showCursor() {}, clearLine() {}, clearFromCursor() {},
     clearScreen() {}, setTitle() {}, setProgress() {},
   };
@@ -127,7 +136,7 @@ test("real fullscreen double click replaces word on typing", () => {
       input("\x1b[<0;8;2m");
     }
     tui.renderNow();
-    assert.doesNotMatch(tui.previousScreen[1], /\x1b\[7m!\s+\x1b\[0m/);
+    assert.doesNotMatch((tui as unknown as { previousScreen: string[] }).previousScreen[1], /\x1b\[7m!\s+\x1b\[0m/);
     input("X");
     assert.equal(editor.getText(), "hello X!");
     input("\x1f");

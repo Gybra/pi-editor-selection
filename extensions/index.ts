@@ -15,9 +15,8 @@ import {
   removeRange,
   selectionOnSegment,
   selectionRange,
-} from "../src/selection.js";
-
-type Selection = { anchor: number; focus: number };
+  type Selection,
+} from "#src/selection";
 type VisualSegment = {
   text: string;
   start: number;

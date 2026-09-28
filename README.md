@@ -35,6 +35,8 @@ pi -e .
 ## Test and package check
 
 ```sh
+npm install --no-package-lock
+npm run typecheck
 npm test
 npm pack --dry-run --json
 ```
