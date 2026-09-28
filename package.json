@@ -1,6 +1,6 @@
 {
   "name": "pi-editor-selection",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Keyboard and fullscreen mouse selection for the Pi prompt editor",
   "repository": {
     "type": "git",
