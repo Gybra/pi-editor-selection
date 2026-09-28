@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import * as selection from "../src/selection.js";
+import * as selection from "#src/selection";
 import {
   cursorToOffset,
   offsetToCursor,
   removeRange,
   selectionRange,
-} from "../src/selection.js";
+} from "#src/selection";
 
 test("extension retains its anchor as the focus moves in either direction", () => {
   assert.equal(typeof selection.extendSelection, "function");
