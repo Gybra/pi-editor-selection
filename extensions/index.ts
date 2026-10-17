@@ -8,6 +8,7 @@ import {
   type EditorTheme,
   type TUI,
   type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import {
   cursorToOffset,
@@ -31,6 +32,7 @@ const LEFT = "\x1b[D";
 const RIGHT = "\x1b[C";
 const UP = "\x1b[A";
 const DOWN = "\x1b[B";
+const AUTOSCROLL_INTERVAL_MS = 50;
 const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 const wordSegmenter = new Intl.Segmenter(undefined, { granularity: "word" });
 
@@ -48,6 +50,9 @@ class SelectionEditor extends CustomEditor {
   private mouseDragged = false;
   private lastPress?: { x: number; y: number; time: number };
   private mouseWordSelected = false;
+  // Once a drag starts, the extension owns the selection: Pi's own one is tied to screen cells and cannot follow a scrolling prompt.
+  private dragSelecting = false;
+  private autoScroll?: { direction: 1 | -1; timer: ReturnType<typeof setInterval> };
 
   constructor(tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) {
     super(tui, theme, keybindings);
@@ -55,6 +60,7 @@ class SelectionEditor extends CustomEditor {
   }
 
   handleInput(data: string): void {
+    this.stopDragSelection();
     if (this.isShowingAutocomplete()) {
       this.selection = undefined;
       super.handleInput(data);
@@ -145,12 +151,24 @@ class SelectionEditor extends CustomEditor {
       return super.handleMouse(event);
     }
 
+    if (event.type === "wheel") return this.scrollWithWheel(event.wheelDelta ?? 0);
+    if (this.dragSelecting) return this.handleDragSelection(event);
+
     if (event.type === "release" && this.mouseAnchor !== undefined) {
       if (!this.mouseDragged && !this.mouseWordSelected) this.selection = undefined;
       this.mouseWordSelected = false;
       this.mouseAnchor = undefined;
       this.mouseDragged = false;
       return undefined;
+    }
+
+    // Before the bounds check: a first drag that lands on the border must already scroll.
+    if (event.type === "drag" && event.button === "left" && this.mouseAnchor !== undefined) {
+      this.lastPress = undefined;
+      this.mouseWordSelected = false;
+      this.clearScreenSelection();
+      this.dragSelecting = true;
+      return this.handleDragSelection(event);
     }
 
     if (event.button !== "left" || event.y <= 0 || event.y > this.renderedTextRows) {
@@ -179,25 +197,127 @@ class SelectionEditor extends CustomEditor {
       return undefined;
     }
 
-    if (event.type === "drag" && this.mouseAnchor !== undefined) {
-      this.lastPress = undefined;
-      this.mouseWordSelected = false;
-      super.handleMouse({ ...event, type: "click" });
-      const text = this.getText();
-      const focus = cursorToOffset(text, this.getCursor());
-      this.mouseDragged = focus !== this.mouseAnchor;
-      if (this.mouseDragged) {
-        const end = nextGraphemeOffset(text, Math.max(this.mouseAnchor, focus));
-        this.selection = focus > this.mouseAnchor
-          ? { anchor: this.mouseAnchor, focus: end }
-          : { anchor: end, focus };
-      } else {
-        this.selection = undefined;
-      }
-      return undefined;
-    }
-
     return super.handleMouse(event);
+  }
+
+  // Pi keeps the cursor row visible on every render, so scrolling the prompt means moving the cursor.
+  private scrollWithWheel(delta: number): TuiMouseEventResult | undefined {
+    if (this.visualLineCount() <= this.renderedTextRows) return undefined;
+    // Like arrow navigation: an edit after scrolling must not hit the old, possibly off-screen, selection.
+    this.clearSelection();
+    this.moveCursorByVisualLines(delta);
+    return { handled: true };
+  }
+
+  private clearSelection(): void {
+    this.selection = undefined;
+    this.clearScreenSelection();
+  }
+
+  private clearScreenSelection(): void {
+    // ponytail: Pi exposes no public way to clear fullscreen selection; remove this when it does.
+    (this.tui as unknown as { clearTextSelection?: () => void }).clearTextSelection?.();
+    this.tui.requestRender();
+  }
+
+  private visualLines() {
+    // ponytail: use Pi's private visual map until it exposes a public wrapped-line API.
+    const editor = this as unknown as {
+      buildVisualLineMap(width: number): { logicalLine: number; startCol: number; length: number }[];
+      lastWidth: number;
+    };
+    return editor.buildVisualLineMap(editor.lastWidth);
+  }
+
+  private visualLineCount(): number {
+    return this.visualLines().length;
+  }
+
+  private moveCursorByVisualLines(delta: number): void {
+    const visualLines = this.visualLines();
+    const cursor = this.getCursor();
+    const current = Math.max(0, visualLines.findIndex(
+      (visualLine, index) =>
+        visualLine.logicalLine === cursor.line &&
+        cursor.col >= visualLine.startCol &&
+        (cursor.col < visualLine.startCol + visualLine.length ||
+          visualLines[index + 1]?.logicalLine !== cursor.line),
+    ));
+    // Clamped: Up on the first row would open Pi's prompt history and replace the text.
+    const steps = Math.max(0, Math.min(visualLines.length - 1, current + Math.round(delta))) - current;
+    for (let step = 0; step < Math.abs(steps); step++) super.handleInput(steps > 0 ? DOWN : UP);
+  }
+
+  // Selects from the press point to the cursor, including the character under it.
+  private extendMouseSelection(): void {
+    if (this.mouseAnchor === undefined) return;
+    const text = this.getText();
+    const focus = cursorToOffset(text, this.getCursor());
+    this.mouseDragged = focus !== this.mouseAnchor;
+    if (this.mouseDragged) {
+      const end = nextGraphemeOffset(text, Math.max(this.mouseAnchor, focus));
+      this.selection = focus > this.mouseAnchor
+        ? { anchor: this.mouseAnchor, focus: end }
+        : { anchor: end, focus };
+    } else {
+      this.selection = undefined;
+    }
+  }
+
+  // Captured drag: events keep coming when the pointer leaves the prompt, where they scroll it.
+  private handleDragSelection(event: TuiMouseEvent): TuiMouseEventResult {
+    if (event.type === "release") {
+      this.finishDragSelection();
+      return { handled: true };
+    }
+    if (event.type === "drag") {
+      if (event.y < 1 || event.y > this.renderedTextRows) {
+        this.startAutoScroll(event.y < 1 ? -1 : 1);
+      } else {
+        this.stopAutoScroll();
+        super.handleMouse({ ...event, type: "click" });
+        this.extendMouseSelection();
+      }
+    }
+    return { handled: true, capture: true };
+  }
+
+  private startAutoScroll(direction: 1 | -1): void {
+    if (this.autoScroll?.direction === direction) return;
+    this.stopAutoScroll();
+    const timer = setInterval(() => {
+      if (this.mouseAnchor === undefined) return this.stopAutoScroll();
+      this.moveCursorByVisualLines(direction);
+      this.extendMouseSelection();
+      this.tui.requestRender();
+    }, AUTOSCROLL_INTERVAL_MS);
+    timer.unref();
+    this.autoScroll = { direction, timer };
+  }
+
+  private stopAutoScroll(): void {
+    if (this.autoScroll) clearInterval(this.autoScroll.timer);
+    this.autoScroll = undefined;
+  }
+
+  private stopDragSelection(): void {
+    this.stopAutoScroll();
+    this.dragSelecting = false;
+  }
+
+  private finishDragSelection(): void {
+    const range = this.selection && selectionRange(this.selection.anchor, this.selection.focus);
+    this.stopDragSelection();
+    this.mouseAnchor = undefined;
+    this.mouseDragged = false;
+    this.mouseWordSelected = false;
+    if (!range || range.start === range.end) return;
+    // ponytail: Pi's clipboard path (with its "Copied!" flash) is private; replace when it is public.
+    const pi = this.tui as unknown as {
+      getCopyOnSelect?: () => boolean;
+      copyTextToClipboard?: (text: string) => Promise<unknown>;
+    };
+    if (pi.getCopyOnSelect?.() === true) void pi.copyTextToClipboard?.(this.getText().slice(range.start, range.end));
   }
 
   render(width: number): string[] {
