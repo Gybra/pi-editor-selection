@@ -8,6 +8,7 @@ import {
   type EditorTheme,
   type TUI,
   type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import {
   cursorToOffset,
@@ -145,6 +146,8 @@ class SelectionEditor extends CustomEditor {
       return super.handleMouse(event);
     }
 
+    if (event.type === "wheel") return this.scrollWithWheel(event.wheelDelta ?? 0);
+
     if (event.type === "release" && this.mouseAnchor !== undefined) {
       if (!this.mouseDragged && !this.mouseWordSelected) this.selection = undefined;
       this.mouseWordSelected = false;
@@ -198,6 +201,30 @@ class SelectionEditor extends CustomEditor {
     }
 
     return super.handleMouse(event);
+  }
+
+  // Pi keeps the cursor row visible on every render, so scrolling the prompt means moving the cursor.
+  private scrollWithWheel(delta: number): TuiMouseEventResult | undefined {
+    // ponytail: use Pi's private visual map until it exposes a public wrapped-line API.
+    const editor = this as unknown as {
+      buildVisualLineMap(width: number): { logicalLine: number; startCol: number; length: number }[];
+      lastWidth: number;
+    };
+    const visualLines = editor.buildVisualLineMap(editor.lastWidth);
+    if (visualLines.length <= this.renderedTextRows) return undefined;
+
+    const cursor = this.getCursor();
+    const current = Math.max(0, visualLines.findIndex(
+      (visualLine, index) =>
+        visualLine.logicalLine === cursor.line &&
+        cursor.col >= visualLine.startCol &&
+        (cursor.col < visualLine.startCol + visualLine.length ||
+          visualLines[index + 1]?.logicalLine !== cursor.line),
+    ));
+    // Clamped: Up on the first row would open Pi's prompt history and replace the text.
+    const steps = Math.max(0, Math.min(visualLines.length - 1, current + Math.round(delta))) - current;
+    for (let step = 0; step < Math.abs(steps); step++) super.handleInput(steps > 0 ? DOWN : UP);
+    return { handled: true };
   }
 
   render(width: number): string[] {

@@ -227,3 +227,78 @@ test("regular mode and non-text or non-left presses are not captured", () => {
   assert.equal(fullscreen.handleMouse(mouse("press", 1, 1, "middle")), undefined);
   assert.equal(fullscreen.handleMouse(mouse("press", 1, 0)), undefined);
 });
+
+function wheel(delta: number, y = 2): TuiMouseEvent {
+  return { ...mouse("wheel", 1, y, "none"), wheelDelta: delta };
+}
+
+test("wheel over an overflowing prompt moves the cursor and is handled", () => {
+  const { editor } = createEditor();
+  editor.setText(Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n"));
+  editor.render(20);
+  assert.equal(editor.getCursor().line, 29);
+
+  assert.deepEqual(editor.handleMouse(wheel(-3)), { handled: true });
+  assert.equal(editor.getCursor().line, 26);
+  editor.handleMouse(wheel(2));
+  assert.equal(editor.getCursor().line, 28);
+});
+
+test("wheel stops at the prompt edges instead of browsing history", () => {
+  const { editor } = createEditor();
+  const text = Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n");
+  editor.setText(text);
+  editor.render(20);
+
+  editor.handleMouse(wheel(-100));
+  assert.equal(editor.getCursor().line, 0);
+  assert.equal(editor.getText(), text);
+  editor.handleMouse(wheel(-1));
+  assert.equal(editor.getText(), text);
+  editor.handleMouse(wheel(100));
+  assert.equal(editor.getCursor().line, 29);
+});
+
+test("wheel is left to Pi when the prompt fits", () => {
+  const { editor } = createEditor();
+  editor.setText("one\ntwo");
+  editor.render(20);
+  assert.equal(editor.handleMouse(wheel(-1)), undefined);
+  assert.deepEqual(editor.getCursor(), { line: 1, col: 3 });
+});
+
+test("a real wheel event reaches the editor through the fullscreen renderer", () => {
+  let input!: (data: string) => void;
+  const terminal: Terminal = {
+    columns: 20,
+    rows: 24,
+    kittyProtocolActive: false,
+    start(onInput) { input = onInput; },
+    stop() {},
+    async drainInput() {},
+    write() {},
+    moveBy() {},
+    hideCursor() {},
+    showCursor() {},
+    clearLine() {},
+    clearFromCursor() {},
+    clearScreen() {},
+    setTitle() {},
+    setProgress() {},
+  } as unknown as Terminal;
+  const tui = new TuiAltScreen(terminal, false);
+  const { editor } = createEditor("fullscreen", tui);
+  editor.setText(Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n"));
+  tui.setLayoutRoot(editor);
+  tui.start();
+  tui.renderNow();
+
+  try {
+    input("\x1b[<64;3;2M"); // wheel up over the prompt text
+    assert.equal(editor.getCursor().line, 28);
+    input("\x1b[<65;3;2M"); // wheel down
+    assert.equal(editor.getCursor().line, 29);
+  } finally {
+    tui.stop();
+  }
+});
