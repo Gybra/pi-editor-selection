@@ -318,7 +318,7 @@ class SelectionEditor extends CustomEditor {
       getCopyOnSelect?: () => boolean;
       copyTextToClipboard?: (text: string) => Promise<unknown>;
     };
-    if (pi.getCopyOnSelect?.() ?? true) void pi.copyTextToClipboard?.(this.getText().slice(range.start, range.end));
+    if (pi.getCopyOnSelect?.() === true) void pi.copyTextToClipboard?.(this.getText().slice(range.start, range.end));
   }
 
   render(width: number): string[] {

@@ -355,3 +355,27 @@ test("dragging out of the prompt scrolls it, extends the selection and copies th
     tui.stop();
   }
 });
+
+test("a drag copies nothing when Fullscreen copy on select is off", async () => {
+  let copied: string | undefined;
+  const { terminal, input } = fakeTerminal();
+  const tui = new TuiAltScreen(terminal, false, undefined, {
+    copyOnSelect: false,
+    copySelection: async (text) => { copied = text; return true; },
+  });
+  const { editor } = createEditor("fullscreen", tui);
+  editor.setText("abcdef");
+  tui.setLayoutRoot(editor);
+  tui.start();
+  tui.renderNow();
+
+  try {
+    input("\x1b[<0;2;2M");
+    input("\x1b[<32;5;2M");
+    input("\x1b[<0;5;2m");
+    await Promise.resolve();
+    assert.equal(copied, undefined);
+  } finally {
+    tui.stop();
+  }
+});
