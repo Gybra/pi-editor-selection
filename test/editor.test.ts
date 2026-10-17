@@ -46,6 +46,18 @@ function mouse(type: TuiMouseEvent["type"], x: number, y: number, button: TuiMou
   };
 }
 
+// Minimal terminal for driving a real TuiAltScreen with raw input sequences.
+function fakeTerminal() {
+  let onInput!: (data: string) => void;
+  const terminal: Terminal = {
+    columns: 20, rows: 24, kittyProtocolActive: false,
+    start(handler) { onInput = handler; }, stop() {}, async drainInput() {}, write() {}, moveBy() {},
+    hideCursor() {}, showCursor() {}, clearLine() {}, clearFromCursor() {},
+    clearScreen() {}, setTitle() {}, setProgress() {}, setProgramStatus() {},
+  };
+  return { terminal, input: (data: string) => onInput(data) };
+}
+
 test("fullscreen drag selects prompt text that Backspace removes", () => {
   const { editor } = createEditor();
   editor.setText("abcdef");
@@ -61,25 +73,8 @@ test("fullscreen drag selects prompt text that Backspace removes", () => {
 });
 
 test("fullscreen mouse selection copies through Pi and remains deletable", async () => {
-  let input!: (data: string) => void;
+  const { terminal, input } = fakeTerminal();
   let copied: string | undefined;
-  const terminal: Terminal = {
-    columns: 20,
-    rows: 24,
-    kittyProtocolActive: false,
-    start(onInput) { input = onInput; },
-    stop() {},
-    async drainInput() {},
-    write() {},
-    moveBy() {},
-    hideCursor() {},
-    showCursor() {},
-    clearLine() {},
-    clearFromCursor() {},
-    clearScreen() {},
-    setTitle() {},
-    setProgress() {},
-  };
   const tui = new TuiAltScreen(terminal, false, undefined, {
     copySelection: async (text) => { copied = text; return true; },
   });
@@ -119,13 +114,7 @@ test("typing replaces a keyboard selection but navigation does not", () => {
 });
 
 test("real fullscreen double click replaces word on typing", () => {
-  let input!: (data: string) => void;
-  const terminal: Terminal = {
-    columns: 20, rows: 24, kittyProtocolActive: false,
-    start(onInput) { input = onInput; }, stop() {}, async drainInput() {}, write() {}, moveBy() {},
-    hideCursor() {}, showCursor() {}, clearLine() {}, clearFromCursor() {},
-    clearScreen() {}, setTitle() {}, setProgress() {},
-  };
+  const { terminal, input } = fakeTerminal();
   const tui = new TuiAltScreen(terminal);
   const { editor } = createEditor("fullscreen", tui);
   editor.setText("hello world!");
@@ -306,24 +295,7 @@ test("wheel is left to Pi when the prompt fits", () => {
 });
 
 test("a real wheel event reaches the editor through the fullscreen renderer", () => {
-  let input!: (data: string) => void;
-  const terminal: Terminal = {
-    columns: 20,
-    rows: 24,
-    kittyProtocolActive: false,
-    start(onInput: (data: string) => void) { input = onInput; },
-    stop() {},
-    async drainInput() {},
-    write() {},
-    moveBy() {},
-    hideCursor() {},
-    showCursor() {},
-    clearLine() {},
-    clearFromCursor() {},
-    clearScreen() {},
-    setTitle() {},
-    setProgress() {},
-  } as unknown as Terminal;
+  const { terminal, input } = fakeTerminal();
   const tui = new TuiAltScreen(terminal, false);
   const { editor } = createEditor("fullscreen", tui);
   editor.setText(Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n"));
@@ -347,25 +319,8 @@ async function until(condition: () => boolean) {
 }
 
 test("dragging out of the prompt scrolls it, extends the selection and copies the scrolled-off text", async () => {
-  let input!: (data: string) => void;
+  const { terminal, input } = fakeTerminal();
   let copied: string | undefined;
-  const terminal = {
-    columns: 20,
-    rows: 24,
-    kittyProtocolActive: false,
-    start(onInput: (data: string) => void) { input = onInput; },
-    stop() {},
-    async drainInput() {},
-    write() {},
-    moveBy() {},
-    hideCursor() {},
-    showCursor() {},
-    clearLine() {},
-    clearFromCursor() {},
-    clearScreen() {},
-    setTitle() {},
-    setProgress() {},
-  } as unknown as Terminal;
   const tui = new TuiAltScreen(terminal, false, undefined, {
     copySelection: async (text) => { copied = text; return true; },
   });
