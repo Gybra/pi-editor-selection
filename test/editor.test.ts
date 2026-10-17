@@ -379,3 +379,22 @@ test("a drag copies nothing when Fullscreen copy on select is off", async () => 
     tui.stop();
   }
 });
+
+test("a first drag straight onto the border already scrolls the prompt", async () => {
+  const { terminal, input } = fakeTerminal();
+  const tui = new TuiAltScreen(terminal, false);
+  const { editor } = createEditor("fullscreen", tui);
+  editor.setText(Array.from({ length: 30 }, (_, i) => `line ${i}`).join("\n"));
+  tui.setLayoutRoot(editor);
+  tui.start();
+  tui.renderNow();
+
+  try {
+    input("\x1b[<0;3;2M"); // press on the first visible line (23)
+    input("\x1b[<32;3;1M"); // first drag event is already on the top border
+    await until(() => editor.getCursor().line < 23);
+    input("\x1b[<0;3;1m");
+  } finally {
+    tui.stop();
+  }
+});

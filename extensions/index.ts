@@ -162,6 +162,15 @@ class SelectionEditor extends CustomEditor {
       return undefined;
     }
 
+    // Before the bounds check: a first drag that lands on the border must already scroll.
+    if (event.type === "drag" && event.button === "left" && this.mouseAnchor !== undefined) {
+      this.lastPress = undefined;
+      this.mouseWordSelected = false;
+      this.clearScreenSelection();
+      this.dragSelecting = true;
+      return this.handleDragSelection(event);
+    }
+
     if (event.button !== "left" || event.y <= 0 || event.y > this.renderedTextRows) {
       return super.handleMouse(event);
     }
@@ -186,16 +195,6 @@ class SelectionEditor extends CustomEditor {
       this.mouseAnchor = cursorToOffset(this.getText(), this.getCursor());
       this.tui.setFocus(this);
       return undefined;
-    }
-
-    if (event.type === "drag" && this.mouseAnchor !== undefined) {
-      this.lastPress = undefined;
-      this.mouseWordSelected = false;
-      super.handleMouse({ ...event, type: "click" });
-      this.extendMouseSelection();
-      this.clearScreenSelection();
-      this.dragSelecting = true;
-      return { handled: true, capture: true };
     }
 
     return super.handleMouse(event);
