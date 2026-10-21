@@ -10,6 +10,10 @@ import {
   type TuiMouseEvent,
   type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
+// Pi's internal fake-cursor markers (converted to [7m/[27m by pi-tui resolveFakeCursors).
+const FAKE_CURSOR_START = "\x1b_pi:fc\x07";
+const FAKE_CURSOR_END = "\x1b_pi:/fc\x07";
+
 import {
   cursorToOffset,
   extendSelection,
@@ -321,7 +325,7 @@ class SelectionEditor extends CustomEditor {
   }
 
   render(width: number): string[] {
-    const rendered = super.render(width);
+    let rendered = super.render(width);
     if (this.isShowingAutocomplete()) {
       this.selection = undefined;
       this.renderedTextRows = 0;
@@ -385,14 +389,20 @@ class SelectionEditor extends CustomEditor {
 
     // Pi paints fullscreen mouse selections itself. Its selection slicer can carry the
     // editor's inverse-video cursor into the padding, so hide that cursor while selecting.
+    // Pi can also report a selection it never paints, so it must not suppress ours.
     if ((this.tui as TUI & { hasActiveSelection?: () => boolean }).hasActiveSelection?.()) {
-      return rendered.map((line) => line.replace(
+      rendered = rendered.map((line) => line.replace(
         `${CURSOR_MARKER}\x1b[7m`, CURSOR_MARKER,
       ));
     }
     if (!this.selection) return rendered;
     const range = selectionRange(this.selection.anchor, this.selection.focus);
     if (range.start === range.end) return rendered;
+
+    // Pi turns its fake cursor markers into [7m/[27m after render; inside our reverse
+    // span that [27m would close the highlight early, so drop them while selecting.
+    rendered = rendered.map((line) =>
+      line.replaceAll(FAKE_CURSOR_START, "").replaceAll(FAKE_CURSOR_END, ""));
 
     for (let row = 0; row < this.renderedSegments.length; row++) {
       const segment = this.renderedSegments[row]!;
