@@ -276,6 +276,12 @@ class SelectionEditor extends CustomEditor {
     }
     if (event.type === "drag") {
       if (event.y < 1 || event.y > this.renderedTextRows) {
+        // A fast drag can leave the prompt in one move: extend to the edge row now, or the
+        // selection stays on the last row that happened to be inside it until autoscroll ticks.
+        if (this.visualLineCount() <= this.renderedTextRows) {
+          this.moveCursorByVisualLines(event.y < 1 ? -this.renderedTextRows : this.renderedTextRows);
+          this.extendMouseSelection();
+        }
         this.startAutoScroll(event.y < 1 ? -1 : 1);
       } else {
         this.stopAutoScroll();

@@ -436,3 +436,30 @@ test("a first drag straight onto the border already scrolls the prompt", async (
     tui.stop();
   }
 });
+
+test("drag above the prompt selects up to the first line", () => {
+  const { terminal, input } = fakeTerminal(true);
+  (terminal as unknown as { columns: number }).columns = 60;
+  const tui = new TuiAltScreen(terminal);
+  const { editor } = createEditor("fullscreen", tui);
+  editor.setText("prima riga di testo\nseconda riga di testo\nterza riga");
+  tui.setLayoutRoot(editor);
+  tui.start();
+  tui.renderNow();
+  try {
+    input("\x1b[<0;1;3M"); // press on the last line, column 0
+    input("\x1b[<32;1;2M"); // drag up to the middle line
+    input("\x1b[<32;1;0M"); // drag above the prompt
+    input("\x1b[<0;1;0m"); // release above the prompt
+    tui.renderNow();
+    const screen = (tui as unknown as { previousScreen: string[] }).previousScreen;
+    const row = (needle: string) =>
+      screen.find((line) =>
+        line.replace(/\x1b\[[0-9;]*m|\x1b\][^\x07]*\x07|\x1b_pi:[^\x07]*\x07/g, "").includes(needle),
+      ) ?? "";
+    assert.ok(row("prima riga").includes("\x1b[7m"), screen.join("\n"));
+    assert.ok(row("seconda riga").includes("\x1b[7m"), screen.join("\n"));
+  } finally {
+    tui.stop();
+  }
+});
