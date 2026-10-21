@@ -47,10 +47,10 @@ function mouse(type: TuiMouseEvent["type"], x: number, y: number, button: TuiMou
 }
 
 // Minimal terminal for driving a real TuiAltScreen with raw input sequences.
-function fakeTerminal() {
+function fakeTerminal(kittyProtocolActive = false) {
   let onInput!: (data: string) => void;
   const terminal: Terminal = {
-    columns: 20, rows: 24, kittyProtocolActive: false,
+    columns: 20, rows: 24, kittyProtocolActive,
     start(handler) { onInput = handler; }, stop() {}, async drainInput() {}, write() {}, moveBy() {},
     hideCursor() {}, showCursor() {}, clearLine() {}, clearFromCursor() {},
     clearScreen() {}, setTitle() {}, setProgress() {}, setProgramStatus() {},
@@ -111,6 +111,44 @@ test("typing replaces a keyboard selection but navigation does not", () => {
   editor.handleInput("\x1b[1;2D");
   editor.handleInput("Z");
   assert.equal(editor.getText(), "hellZ");
+});
+
+test("keyboard selection is painted even when Pi reports a screen selection", () => {
+  const tui = {
+    mode: "fullscreen", terminal: { rows: 24 }, requestRender() {}, setFocus() {}, hasActiveSelection: () => true,
+  } as unknown as TUI;
+  const { editor } = createEditor("fullscreen", tui);
+  editor.setText("abcdef");
+  editor.render(20);
+  editor.handleInput("\x1b[1;2D");
+  editor.handleInput("\x1b[1;2D");
+
+  const span = editor.render(20)[1]!.match(/\x1b\[7m([\s\S]*?)\x1b\[0m/)?.[1] ?? "";
+  assert.ok(span.includes("e") && span.includes("f"), "selected text is painted in reverse video");
+});
+
+
+test("kitty cursor markers do not swallow the keyboard highlight", () => {
+  const { terminal, input } = fakeTerminal(true);
+  const tui = new TuiAltScreen(terminal);
+  const { editor } = createEditor("fullscreen", tui);
+  editor.setText("ciao a tutti");
+  tui.setLayoutRoot(editor);
+  tui.start();
+  tui.renderNow();
+  try {
+    editor.handleInput("\x1b[1;2D");
+    editor.handleInput("\x1b[1;2D");
+    tui.renderNow();
+    const screen = (tui as unknown as { previousScreen: string[] }).previousScreen;
+    const line = screen.find((entry) => entry.includes("ciao")) ?? "";
+    const span = line.match(/\x1b\[7m([\s\S]*?)\x1b\[0m/)?.[1] ?? "";
+    assert.ok(span.includes("t") && span.includes("i"), `selected text painted: ${JSON.stringify(line)}`);
+    assert.ok(!span.includes("\x1b[27m"), `highlight cut short: ${JSON.stringify(line)}`);
+    assert.doesNotMatch(line, /\x1b\[7m\s*$/, `reverse video leaks into the padding: ${JSON.stringify(line)}`);
+  } finally {
+    tui.stop();
+  }
 });
 
 test("real fullscreen double click replaces word on typing", () => {
