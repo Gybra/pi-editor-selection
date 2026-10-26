@@ -21,7 +21,7 @@ import {
   selectionOnSegment,
   selectionRange,
 } from "#src/selection";
-import type { Selection } from "#src/types";
+import type { Selection } from "#src/types/selection";
 type VisualSegment = {
   text: string;
   start: number;
