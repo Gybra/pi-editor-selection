@@ -21,6 +21,7 @@
   "files": [
     "extensions",
     "src/selection.ts",
+    "src/types.ts",
     "README.md",
     "LICENSE"
   ],

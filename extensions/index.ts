@@ -20,8 +20,8 @@ import {
   removeRange,
   selectionOnSegment,
   selectionRange,
-  type Selection,
 } from "#src/selection";
+import type { Selection } from "#src/types";
 type VisualSegment = {
   text: string;
   start: number;
