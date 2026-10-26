@@ -1,4 +1,4 @@
-export type Selection = { anchor: number; focus: number };
+import type { Selection } from "#src/types/selection";
 
 export function cursorToOffset(text: string, { line, col }: { line: number; col: number }): number {
   const lines = text.split("\n");

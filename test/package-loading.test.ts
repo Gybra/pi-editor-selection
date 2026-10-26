@@ -10,9 +10,8 @@ test("Pi loads the extension with host-provided peer modules", async () => {
 
   try {
     await mkdir(join(root, "extensions"), { recursive: true });
-    await mkdir(join(root, "src"), { recursive: true });
     await cp(new URL("../extensions/index.ts", import.meta.url), join(root, "extensions/index.ts"));
-    await cp(new URL("../src/selection.ts", import.meta.url), join(root, "src/selection.ts"));
+    await cp(new URL("../src", import.meta.url), join(root, "src"), { recursive: true });
     await cp(new URL("../package.json", import.meta.url), join(root, "package.json"));
 
     const { loadExtensions } = await import(new URL("core/extensions/loader.js", piDist).href);
