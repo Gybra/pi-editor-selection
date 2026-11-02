@@ -424,7 +424,10 @@ class SelectionEditor extends CustomEditor {
       if (!selected) continue;
 
       const before = sliceByColumn(line, 0, start, true);
-      const after = sliceByColumn(line, end, Math.max(0, width - end), true);
+      let after = sliceByColumn(line, end, Math.max(0, width - end), true);
+      // sliceByColumn repeats the codes before `end`, cursor marker included. Pi strips only the
+      // first marker, and the copy it leaves makes some terminals hide the rest of the line.
+      if (selected.includes(CURSOR_MARKER)) after = after.replace(CURSOR_MARKER, "");
       rendered[row + 1] =
         before +
         "\x1b[7m" +
