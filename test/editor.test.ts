@@ -105,6 +105,26 @@ test("fullscreen mouse selection copies through Pi and remains deletable", async
   }
 });
 
+test("a mouse selection leaves no cursor marker that hides the text after it", () => {
+  const { terminal, input } = fakeTerminal();
+  const tui = new TuiAltScreen(terminal);
+  const { editor } = createEditor("fullscreen", tui);
+  editor.setText("abcdefghij");
+  tui.setLayoutRoot(editor);
+  tui.start();
+  tui.renderNow();
+  try {
+    input("\x1b[<0;4;2M");
+    input("\x1b[<32;7;2M");
+    tui.renderNow();
+    const line = (tui as unknown as { previousScreen: string[] }).previousScreen[1];
+    assert.ok(!line.includes("\x1b_pi:c\x07"), `cursor marker written to the terminal: ${JSON.stringify(line)}`);
+    assert.match(line, /\x1b\[7mdefg\x1b\[0mhij/);
+  } finally {
+    tui.stop();
+  }
+});
+
 test("typing replaces a keyboard selection but navigation does not", () => {
   const { editor } = createEditor();
   editor.setText("hello");
